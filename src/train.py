@@ -50,8 +50,9 @@ def save_checkpoint(
     ma_losses: deque[float],
     ma_alphas: deque[float],
     agent: SACAgent,
+    path: Path,
 ):
-    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(
         {
             "step": step,
@@ -69,15 +70,17 @@ def save_checkpoint(
             "opt_alpha": agent.alpha_optimizer.state_dict(),
             "replay": list(agent.memory.buffer),
         },
-        BACKUP_DIR / "ckpt.pth",
+        path,
     )
 
 
-def load_checkpoint(agent: SACAgent, ma_window: int):
-    path = BACKUP_DIR / "ckpt.pth"
+def load_checkpoint(agent: SACAgent, ma_window: int, path: Path):
     if not path.exists():
         values = 0, -float("inf"), 0, deque(maxlen=ma_window), deque(maxlen=ma_window)
-        print("\nNo checkpoint found, starting with those default values: ", values)
+        print(
+            f"\nNo checkpoint found at {path}, starting with those default values: ",
+            values,
+        )
         print()
         return values
     data = torch.load(path, map_location="cpu", weights_only=False)
@@ -143,7 +146,7 @@ def train(
 
     if resume:
         step, best_eval, episodes_finished, ma_losses, ma_alphas = load_checkpoint(
-            agent, ma_window
+            agent, ma_window, BACKUP_DIR / "ckpt.pth"
         )
     else:
         step = 0
@@ -208,11 +211,26 @@ def train(
             )
             if avg_total_reward > best_eval:
                 best_eval = avg_total_reward
+                save_checkpoint(
+                    step,
+                    best_eval,
+                    episodes_finished,
+                    ma_losses,
+                    ma_alphas,
+                    agent,
+                    BACKUP_DIR / "best_ckpt.pth",
+                )
 
         # Save checkpoint
         if step % save_interval_steps == 0:
             save_checkpoint(
-                step, best_eval, episodes_finished, ma_losses, ma_alphas, agent
+                step,
+                best_eval,
+                episodes_finished,
+                ma_losses,
+                ma_alphas,
+                agent,
+                BACKUP_DIR / "ckpt.pth",
             )
 
         # Log to tensorboard
