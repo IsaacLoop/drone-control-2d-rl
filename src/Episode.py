@@ -1,7 +1,9 @@
-from abc import ABC, abstractmethod
-import numpy as np
-from src.Game import Game
 import math
+from abc import ABC, abstractmethod
+
+import numpy as np
+
+from src.Game import Game
 
 
 def build_state(env: Game, desired_vx: float, desired_vy: float) -> np.ndarray:
@@ -83,18 +85,18 @@ class StraightLineEpisode(AbstractEpisode):
         self.desired_velocity = np.random.uniform(-5, 5, size=2)
 
     def _compute_reward(self) -> float:
-        error = np.linalg.norm(self.game.drone_velocity - self.desired_velocity)
+        v_error = self.game.drone_velocity - self.desired_velocity
+        speed = np.linalg.norm(v_error)
 
-        current_angle = self.game.drone_angle
-        angle_normalized = math.atan2(math.sin(current_angle), math.cos(current_angle))
-        angle_error = abs(angle_normalized)
-        
-        return -error - 0.1 * angle_error
+        v_parallel = np.dot(v_error, self.desired_velocity) / (speed + 1e-6)
+        v_perpendicular = np.sqrt(np.linalg.norm(v_error) ** 2 - v_parallel**2)
+
+        return -1 * abs(v_parallel) - 2 * abs(v_perpendicular)
 
 
 class StopEpisode(AbstractEpisode):
     """Drone is moving in a certain direction with a certain angle,
-    and it must stop as quickly as possible."""
+    and it must stop as quickly as possible, and face upwards."""
 
     def _configure_environment(self):
         # Drone init
@@ -106,11 +108,12 @@ class StopEpisode(AbstractEpisode):
         self.desired_velocity = np.array([0.0, 0.0])
 
     def _compute_reward(self) -> float:
-        # Penalize movement
-        movement_error = np.linalg.norm(self.game.drone_velocity)
+        v_error = self.game.drone_velocity
+        speed = np.linalg.norm(v_error)
 
-        current_angle = self.game.drone_angle
-        angle_normalized = math.atan2(math.sin(current_angle), math.cos(current_angle))
+        angle_normalized = math.atan2(
+            math.sin(self.game.drone_angle), math.cos(self.game.drone_angle)
+        )
         angle_error = abs(angle_normalized)
 
-        return -movement_error - 0.1 * angle_error
+        return -2 * abs(speed) - 1 * abs(angle_error)
