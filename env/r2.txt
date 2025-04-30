@@ -1,0 +1,8 @@
+matplotlib
+numpy
+tqdm
+pygame
+tensorboard
+pandas
+ipykernel
+-e .

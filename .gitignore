@@ -1,0 +1,5 @@
+__pycache__
+src.egg-info
+.env
+training/
+prompster.py
