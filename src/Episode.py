@@ -89,7 +89,7 @@ class StraightLineEpisode(AbstractEpisode):
         speed = np.linalg.norm(v_error)
 
         v_parallel = np.dot(v_error, self.desired_velocity) / (speed + 1e-6)
-        v_perpendicular = np.sqrt(np.linalg.norm(v_error) ** 2 - v_parallel**2)
+        v_perpendicular = np.sqrt(max(0.0, np.linalg.norm(v_error) ** 2 - v_parallel**2))
 
         return -1 * abs(v_parallel) - 2 * abs(v_perpendicular)
 
