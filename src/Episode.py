@@ -1,9 +1,12 @@
 import math
+import random
 from abc import ABC, abstractmethod
 
 import numpy as np
 
 from src.Game import Game
+
+STRAIGHT_LINE_CHANGE_DIRECTION_FRAMES_INTERVAL = 90
 
 
 def build_state(env: Game, desired_vx: float, desired_vy: float) -> np.ndarray:
@@ -11,8 +14,6 @@ def build_state(env: Game, desired_vx: float, desired_vy: float) -> np.ndarray:
     va = env.env.ang_vel / 10
     a_cos = math.cos(env.env.drone_angle)
     a_sin = math.sin(env.env.drone_angle)
-    wind_vx = env.env.wind_force / 10
-    rain_vy = env.env.rain_force / 10
     propL = env.env.drone.L_speed
     propR = env.env.drone.R_speed
     return np.array(
@@ -22,8 +23,6 @@ def build_state(env: Game, desired_vx: float, desired_vy: float) -> np.ndarray:
             va,
             a_cos,
             a_sin,
-            wind_vx,
-            rain_vy,
             propL,
             propR,
             desired_vx / 5,
@@ -78,6 +77,14 @@ class AbstractEpisode(ABC):
 class StraightLineEpisode(AbstractEpisode):
     """The drone must fly in a straight line at a certain speed for some time."""
 
+    def step(self, action: np.ndarray) -> tuple[np.ndarray, float, bool]:
+        r = super().step(action)
+        if random.random() < 1 / STRAIGHT_LINE_CHANGE_DIRECTION_FRAMES_INTERVAL:
+            self.desired_velocity = np.random.uniform(-5, 5, size=2)
+            self.starting_position = self.game.drone_position
+            self.starting_t = self.t
+        return r
+
     def _configure_environment(self):
         # Drone init
         self.game.set_drone_velocity(*np.random.uniform(-5, 5, size=2))
@@ -86,19 +93,19 @@ class StraightLineEpisode(AbstractEpisode):
 
         # Desired
         self.desired_velocity = np.random.uniform(-5, 5, size=2)
+        self.starting_position = self.game.drone_position
+        self.starting_t = self.t
 
     def _compute_reward(self) -> float:
-        v_err = self.game.drone_velocity - self.desired_velocity
-        speed_err = np.linalg.norm(v_err)
-
-        dot = np.dot(self.game.drone_velocity, self.desired_velocity)
-        dir_err = 1.0 - dot / (
-            np.linalg.norm(self.game.drone_velocity)
-            * np.linalg.norm(self.desired_velocity)
-            + 1e-6
+        position_error = np.linalg.norm(
+            self.game.drone_position
+            - (
+                self.starting_position
+                + self.desired_velocity * (self.t - self.starting_t) * self.dt
+            )
         )
 
-        return -(1 / 25 * speed_err) - (1 * dir_err)
+        return -(1 / 50 * position_error)
 
 
 class StopEpisode(AbstractEpisode):
@@ -113,13 +120,16 @@ class StopEpisode(AbstractEpisode):
 
         # Desired
         self.desired_velocity = np.array([0.0, 0.0])
+        self.initial_position = self.game.drone_position
 
     def _compute_reward(self) -> float:
-        speed = np.linalg.norm(self.game.drone_velocity)
+        position_error = np.linalg.norm(
+            self.game.drone_position - self.initial_position
+        )
 
         angle_normalized = math.atan2(
             math.sin(self.game.drone_angle), math.cos(self.game.drone_angle)
         )
         angle_error = abs(angle_normalized)
 
-        return -(1 / 25 * speed) - (2 / math.pi * angle_error)
+        return -(1 / 100 * position_error) - (2 / math.pi * angle_error)

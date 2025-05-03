@@ -1,29 +1,33 @@
 import argparse
-from collections.abc import Callable
 import faulthandler
 import random
 import shutil
+from collections.abc import Callable
 
 import numpy as np
 from tqdm import tqdm
 
 faulthandler.enable()
 
-from src.Episode import AbstractEpisode, StopEpisode, StraightLineEpisode
-from src.SACAgent import SACAgent
-import torch
 from collections import deque
 from pathlib import Path
+
+import torch
 from torch.utils.tensorboard import SummaryWriter
 
-N_ENVS = 4  # Parallel episodes processed each step
+from src.Episode import AbstractEpisode, StopEpisode, StraightLineEpisode
+from src.ReplayMemory import LSTMReplayMemory
+from src.SACAgent import SACAgent
+
+N_ENVS = 4
 FPS = 30  # Physics rate (env.dt = 1/FPS)
-STATE_DIM = 11  # Fixed state length
-ACTION_DIM = 2  # [aL, aR] ∈ [‑1,1]²
+STATE_DIM = 9
+ACTION_DIM = 2
 
 LEARNING_STARTS = 5_000
-CAPACITY = 100_000
-BATCH_SIZE = 256
+MEMORY_EPISODES_CAPACITY = 1_000
+SEQ_LEN = 32
+BATCH_SIZE = 64
 LR = 3e-4
 GAMMA = 0.98
 TAU = 0.005
@@ -68,7 +72,7 @@ def save_checkpoint(
             "opt_q1": agent.q1_optimizer.state_dict(),
             "opt_q2": agent.q2_optimizer.state_dict(),
             "opt_alpha": agent.alpha_optimizer.state_dict(),
-            "replay": list(agent.memory.buffer),
+            "replay": agent.memory,
         },
         path,
     )
@@ -92,7 +96,7 @@ def load_checkpoint(agent: SACAgent, ma_window: int, path: Path):
     agent.q1_optimizer.load_state_dict(data["opt_q1"])
     agent.q2_optimizer.load_state_dict(data["opt_q2"])
     agent.alpha_optimizer.load_state_dict(data["opt_alpha"])
-    agent.memory.buffer = deque(data["replay"], maxlen=agent.capacity)
+    agent.memory = data["replay"]
     return (
         int(data["step"]),
         float(data["best"]),
@@ -105,21 +109,28 @@ def load_checkpoint(agent: SACAgent, ma_window: int, path: Path):
 def evaluate(agent: SACAgent, gui: bool) -> tuple[list[float], float]:
     all_rewards = []
     total_reward = 0.0
+
     for episode_factory in EPISODE_FACTORIES:
         episode = episode_factory(gui)
+        hidden = None
+
         while not episode.done:
             state = episode.state
-            action = agent.select_action(state, deterministic=True)
+            action, next_hidden = agent.select_action(state, hidden, deterministic=True)
+            hidden = (next_hidden[0].detach(), next_hidden[1].detach())
+
             _, reward, _ = episode.step(action)
             all_rewards.append(reward)
             total_reward += reward
+
     avg_total_reward = total_reward / len(EPISODE_FACTORIES)
     return all_rewards, avg_total_reward
 
 
 def train(
     learning_starts: int,
-    capacity: int,
+    memory_episodes_capacity: int,
+    seq_len: int,
     batch_size: int,
     lr: float,
     gamma: float,
@@ -135,7 +146,8 @@ def train(
     agent = SACAgent(
         state_dim=STATE_DIM,
         action_dim=ACTION_DIM,
-        capacity=capacity,
+        memory_episodes_capacity=memory_episodes_capacity,
+        seq_len=seq_len,
         batch_size=batch_size,
         lr=lr,
         gamma=gamma,
@@ -162,7 +174,15 @@ def train(
     episodes: list[AbstractEpisode] = [
         random.choice(EPISODE_FACTORIES)(gui=False) for _ in range(N_ENVS)
     ]
+    h_states = [
+        torch.zeros(1, 1, agent.lstm_hidden_dim).to(DEVICE) for _ in range(N_ENVS)
+    ]
+    c_states = [
+        torch.zeros(1, 1, agent.lstm_hidden_dim).to(DEVICE) for _ in range(N_ENVS)
+    ]
     episodes_cum_reward = [0.0] * N_ENVS
+    episode_ids = list(range(N_ENVS))
+    next_episode_id = N_ENVS
 
     bar = tqdm(desc="Train", unit="t", initial=step, smoothing=0.01)
 
@@ -170,24 +190,58 @@ def train(
         step += 1
         bar.update(1)
 
-        # Train
-        for i, e in enumerate(episodes):
+        for i in range(N_ENVS):
+            e = episodes[i]
+            current_episode_id = episode_ids[i]
             state = e.state
+
+            h_prev = h_states[i].detach().cpu().numpy()
+            c_prev = c_states[i].detach().cpu().numpy()
+
+            current_hidden = (h_states[i], c_states[i])
             if step > learning_starts:
-                action = agent.select_action(state, deterministic=False)
+                action, next_hidden = agent.select_action(
+                    state, current_hidden, deterministic=False
+                )
             else:
                 action = np.random.uniform(-1, 1, size=ACTION_DIM)
+                with torch.no_grad():
+                    _, _, _, next_hidden = agent.actor(
+                        torch.from_numpy(state).float().unsqueeze(0).to(DEVICE),
+                        current_hidden,
+                    )
+
             next_state, reward, done = e.step(action)
-            agent.store(state, action, reward, next_state, done)
+
+            agent.memory.push(
+                episode_id=current_episode_id,
+                state=state,
+                action=action,
+                reward=reward,
+                next_state=next_state,
+                done=done,
+                h0_actor=h_prev,
+                c0_actor=c_prev,
+            )
+
+            h_states[i] = next_hidden[0].detach()
+            c_states[i] = next_hidden[1].detach()
+
             if done:
                 writer.add_scalar(
-                    "t/episode_avg_reward",
-                    episodes_cum_reward[i] / e.duration_steps,
+                    "t/-episode_avg_reward",
+                    -episodes_cum_reward[i] / e.duration_steps,
                     step,
                 )
                 episodes_finished += 1
+
                 episodes[i] = random.choice(EPISODE_FACTORIES)(gui=False)
                 episodes_cum_reward[i] = 0.0
+                h_states[i] = torch.zeros(1, 1, agent.lstm_hidden_dim).to(DEVICE)
+                c_states[i] = torch.zeros(1, 1, agent.lstm_hidden_dim).to(DEVICE)
+
+                episode_ids[i] = next_episode_id
+                next_episode_id += 1
             else:
                 episodes_cum_reward[i] += reward
 
@@ -197,15 +251,14 @@ def train(
             alpha = torch.exp(agent.log_alpha.detach()).item()
             ma_alphas.append(alpha)
 
-        # Evaluate
         if step >= learning_starts and step % evaluation_interval_steps == 0:
             all_rewards, avg_total_reward = evaluate(agent, gui)
             writer.add_scalars(
-                "e/reward",
+                "e/-reward",
                 {
-                    "max": np.max(all_rewards),
-                    "mean": np.mean(all_rewards),
-                    "min": np.min(all_rewards),
+                    "max": -np.max(all_rewards),
+                    "mean": -np.mean(all_rewards),
+                    "min": -np.min(all_rewards),
                 },
                 step,
             )
@@ -259,7 +312,6 @@ def train(
             {
                 "E": f"{episodes_finished:,}",
                 "S": f"{step:,}",
-                "M": f"{len(agent.memory) / capacity:.2f}".rstrip("0").rstrip("."),
                 "B": f"{best_eval:.6f}",
                 "L": (
                     f"{np.mean(ma_losses):.6f}"
@@ -293,7 +345,8 @@ if __name__ == "__main__":
 
     train(
         learning_starts=LEARNING_STARTS,
-        capacity=CAPACITY,
+        memory_episodes_capacity=MEMORY_EPISODES_CAPACITY,
+        seq_len=SEQ_LEN,
         batch_size=BATCH_SIZE,
         lr=LR,
         gamma=GAMMA,
