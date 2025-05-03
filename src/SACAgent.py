@@ -294,15 +294,14 @@ class SACAgent:
 
         q1_loss = F.mse_loss(q1_pred, y)
         q2_loss = F.mse_loss(q2_pred, y)
+        q_loss = q1_loss + q2_loss
 
         self.q1_optimizer.zero_grad()
-        q1_loss.backward()
-        nn.utils.clip_grad_norm_(self.q1.parameters(), self.max_grad_norm)
-        self.q1_optimizer.step()
-
         self.q2_optimizer.zero_grad()
-        q2_loss.backward()
+        q_loss.backward()
+        nn.utils.clip_grad_norm_(self.q1.parameters(), self.max_grad_norm)
         nn.utils.clip_grad_norm_(self.q2.parameters(), self.max_grad_norm)
+        self.q1_optimizer.step()
         self.q2_optimizer.step()
 
         for p in self.q1.parameters():
@@ -343,4 +342,4 @@ class SACAgent:
                 p_target.data.add_(self.tau * p.data)
 
         self.train_step_counter += 1
-        return (q1_loss + q2_loss).item() / 2.0
+        return q_loss.item() / 2.0
