@@ -39,7 +39,10 @@ class AbstractEpisode(ABC):
         self.duration_steps = duration_steps
         self.dt = dt
         self.t = 0
-        self.game = Game(gui=gui, human_player=False, dt=dt)
+
+        # No rain and wind during training. Those will be corrected live by a dumb system,
+        # it doesn't have to be corrected by the AI itself.
+        self.game = Game(gui=gui, human_player=False, dt=dt, wind=True, rain=True)
         self.desired_velocity = np.array([0.0, 0.0])
         self.done = False
         self._configure_environment()
@@ -85,13 +88,17 @@ class StraightLineEpisode(AbstractEpisode):
         self.desired_velocity = np.random.uniform(-5, 5, size=2)
 
     def _compute_reward(self) -> float:
-        v_error = self.game.drone_velocity - self.desired_velocity
-        speed = np.linalg.norm(v_error)
+        v_err = self.game.drone_velocity - self.desired_velocity
+        speed_err = np.linalg.norm(v_err)
 
-        v_parallel = np.dot(v_error, self.desired_velocity) / (speed + 1e-6)
-        v_perpendicular = np.sqrt(max(0.0, np.linalg.norm(v_error) ** 2 - v_parallel**2))
+        dot = np.dot(self.game.drone_velocity, self.desired_velocity)
+        dir_err = 1.0 - dot / (
+            np.linalg.norm(self.game.drone_velocity)
+            * np.linalg.norm(self.desired_velocity)
+            + 1e-6
+        )
 
-        return -1 * abs(v_parallel) - 2 * abs(v_perpendicular)
+        return -(1 / 25 * speed_err) - (1 * dir_err)
 
 
 class StopEpisode(AbstractEpisode):
@@ -108,12 +115,11 @@ class StopEpisode(AbstractEpisode):
         self.desired_velocity = np.array([0.0, 0.0])
 
     def _compute_reward(self) -> float:
-        v_error = self.game.drone_velocity
-        speed = np.linalg.norm(v_error)
+        speed = np.linalg.norm(self.game.drone_velocity)
 
         angle_normalized = math.atan2(
             math.sin(self.game.drone_angle), math.cos(self.game.drone_angle)
         )
         angle_error = abs(angle_normalized)
 
-        return -2 * abs(speed) - 1 * abs(angle_error)
+        return -(1 / 25 * speed) - (2 / math.pi * angle_error)

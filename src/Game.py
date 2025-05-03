@@ -15,13 +15,25 @@ class Game:
     or used with the API of the Game object.
     """
 
-    def __init__(self, gui: bool, human_player: bool, dt: float):
+    def __init__(
+        self,
+        gui: bool,
+        human_player: bool,
+        dt: float,
+        wind: bool = True,
+        rain: bool = True,
+    ):
         assert not (
             not gui and human_player
         ), "Cannot have a human player without a GUI"
         self.gui = gui
         self.human_player = human_player
-        self.env = Environment()
+        self.env = Environment(
+            wind_theta=0.00002 if wind else 0.0,
+            wind_sigma=0.004 if wind else 0.0,
+            rain_theta=0.00002 if rain else 0.0,
+            rain_sigma=0.004 if rain else 0.0,
+        )
         self.dt = dt
         self.is_running = True
 
