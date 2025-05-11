@@ -39,9 +39,7 @@ class AbstractEpisode(ABC):
         self.dt = dt
         self.t = 0
 
-        # No rain and wind during training. Those will be corrected live by a dumb system,
-        # it doesn't have to be corrected by the AI itself.
-        self.game = Game(gui=gui, human_player=False, dt=dt, wind=True, rain=True)
+        self.game = Game(gui=gui, human_player=False, dt=dt, wind=False, rain=False)
         self.desired_velocity = np.array([0.0, 0.0])
         self.done = False
         self._configure_environment()
@@ -105,7 +103,9 @@ class StraightLineEpisode(AbstractEpisode):
             )
         )
 
-        return -(1 / 50 * position_error)
+        vel_error = np.linalg.norm(self.game.drone_velocity - self.desired_velocity)
+
+        return -(1 / 50 * position_error) - (1 / 50 * vel_error)
 
 
 class StopEpisode(AbstractEpisode):
