@@ -121,6 +121,7 @@ class StopEpisode(AbstractEpisode):
         # Desired
         self.desired_velocity = np.array([0.0, 0.0])
         self.initial_position = self.game.drone_position
+        self.success_steps_counter = 0
 
     def _compute_reward(self) -> float:
         position_error = np.linalg.norm(
@@ -134,4 +135,16 @@ class StopEpisode(AbstractEpisode):
 
         speed_error = np.linalg.norm(self.game.drone_velocity)
 
-        return -(1 / 100 * position_error) - (2 / math.pi * angle_error) - (1 / 50 * speed_error)
+        success_condition_met = (
+            speed_error < 0.1 and angle_error < 0.05 and position_error < 0.15
+        )
+
+        if success_condition_met:
+            self.success_steps_counter += 1
+            if self.success_steps_counter >= 10:
+                self.done = True
+                return 3.0
+        else:
+            self.success_steps_counter = 0
+
+        return -(1 / 100 * position_error) - (1 / math.pi * angle_error) - (1 / 5 * speed_error)
