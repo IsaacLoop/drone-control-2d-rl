@@ -103,9 +103,19 @@ class StraightLineEpisode(AbstractEpisode):
             )
         )
 
-        speed_error = np.linalg.norm(self.game.drone_velocity - self.desired_velocity)
+        v = self.game.drone_velocity
+        desired_v = self.desired_velocity
+        v_norm = np.linalg.norm(v) + 1e-6
+        desired_v_norm = np.linalg.norm(desired_v) + 1e-6
+        cos_theta = np.clip(np.dot(v, desired_v) / (v_norm * desired_v_norm), -1.0, 1.0)
+        direction_error = 1.0 - cos_theta
+        speed_magnitude_error = np.abs(v_norm - desired_v_norm)
 
-        return -(1 / 50 * position_error) - (1 / 50 * speed_error)
+        return (
+            -(0.3 * position_error)
+            - (0.6 * speed_magnitude_error)
+            - (1.0 * direction_error)
+        )
 
 
 class StopEpisode(AbstractEpisode):
@@ -147,4 +157,8 @@ class StopEpisode(AbstractEpisode):
         else:
             self.success_steps_counter = 0
 
-        return -(1 / 100 * position_error) - (1 / math.pi * angle_error) - (1 / 5 * speed_error)
+        return (
+            -(0.15 * position_error)
+            - (0.6 / math.pi * angle_error)
+            - (1.0 * speed_error)
+        )
