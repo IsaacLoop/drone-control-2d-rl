@@ -12,8 +12,8 @@ STRAIGHT_LINE_CHANGE_DIRECTION_FRAMES_INTERVAL = 90
 def build_state(env: Game, desired_vx: float, desired_vy: float) -> np.ndarray:
     vx, vy = env.env.drone_velocity / 5
     va = env.env.ang_vel / 10
-    a_cos = math.cos(env.env.drone_angle)
-    a_sin = math.sin(env.env.drone_angle)
+    a_cos = math.cos(env.drone_angle)
+    a_sin = math.sin(env.drone_angle)
     propL = env.env.drone.L_speed
     propR = env.env.drone.R_speed
     return np.array(
@@ -121,7 +121,7 @@ class StopEpisode(AbstractEpisode):
 
         speed_error = np.linalg.norm(self.game.drone_velocity)
 
-        success_condition_met = speed_error < 0.05
+        success_condition_met = speed_error < 0.01
 
         if success_condition_met:
             self.success_steps_counter += 1

@@ -53,6 +53,7 @@ def save_checkpoint(
     episodes_finished: int,
     ma_losses: deque[float],
     ma_alphas: deque[float],
+    ma_train_rewards: deque[float],
     agent: SACAgent,
     path: Path,
 ):
@@ -64,6 +65,7 @@ def save_checkpoint(
             "episodes_finished": episodes_finished,
             "ma_losses": list(ma_losses),
             "ma_alphas": list(ma_alphas),
+            "ma_train_rewards": list(ma_train_rewards),
             "actor": agent.actor.state_dict(),
             "q1": agent.q1.state_dict(),
             "q2": agent.q2.state_dict(),
@@ -80,7 +82,14 @@ def save_checkpoint(
 
 def load_checkpoint(agent: SACAgent, ma_window: int, path: Path):
     if not path.exists():
-        values = 0, -float("inf"), 0, deque(maxlen=ma_window), deque(maxlen=ma_window)
+        values = (
+            0,
+            -float("inf"),
+            0,
+            deque(maxlen=ma_window),
+            deque(maxlen=ma_window),
+            deque(maxlen=ma_window),
+        )
         print(
             f"\nNo checkpoint found at {path}, starting with those default values: ",
             values,
@@ -103,6 +112,7 @@ def load_checkpoint(agent: SACAgent, ma_window: int, path: Path):
         int(data["episodes_finished"]),
         deque(data["ma_losses"], maxlen=ma_window),
         deque(data["ma_alphas"], maxlen=ma_window),
+        deque(data.get("ma_train_rewards", []), maxlen=ma_window),
     )
 
 
@@ -157,15 +167,21 @@ def train(
     )
 
     if resume:
-        step, best_eval, episodes_finished, ma_losses, ma_alphas = load_checkpoint(
-            agent, ma_window, BACKUP_DIR / "ckpt.pth"
-        )
+        (
+            step,
+            best_eval,
+            episodes_finished,
+            ma_losses,
+            ma_alphas,
+            ma_train_rewards,
+        ) = load_checkpoint(agent, ma_window, BACKUP_DIR / "ckpt.pth")
     else:
         step = 0
         best_eval = -float("inf")
         episodes_finished = 0
         ma_losses = deque(maxlen=ma_window)
         ma_alphas = deque(maxlen=ma_window)
+        ma_train_rewards = deque(maxlen=ma_window)
 
     if TENSORBOARD_DIR.exists() and not resume:
         shutil.rmtree(TENSORBOARD_DIR)
@@ -228,11 +244,7 @@ def train(
             c_states[i] = next_hidden[1].detach()
 
             if done:
-                writer.add_scalar(
-                    "t/-episode_avg_reward",
-                    -episodes_cum_reward[i] / e.duration_steps,
-                    step,
-                )
+                ma_train_rewards.append(episodes_cum_reward[i] / e.duration_steps)
                 episodes_finished += 1
 
                 episodes[i] = random.choice(EPISODE_FACTORIES)(gui=False)
@@ -254,25 +266,29 @@ def train(
         if step >= learning_starts and step % evaluation_interval_steps == 0:
             all_rewards, avg_total_reward = evaluate(agent, gui)
             writer.add_scalars(
-                "e/-reward",
+                "e/reward",
                 {
-                    "max": -np.max(all_rewards),
-                    "mean": -np.mean(all_rewards),
-                    "min": -np.min(all_rewards),
+                    "max": np.max(all_rewards),
+                    "mean": np.mean(all_rewards),
+                    "min": np.min(all_rewards),
                 },
                 step,
             )
-            if avg_total_reward > best_eval:
-                best_eval = avg_total_reward
-                save_checkpoint(
-                    step,
-                    best_eval,
-                    episodes_finished,
-                    ma_losses,
-                    ma_alphas,
-                    agent,
-                    BACKUP_DIR / "best_ckpt.pth",
-                )
+            if len(ma_train_rewards) == ma_window:
+                current_ma_train_reward = np.mean(list(ma_train_rewards))
+                if current_ma_train_reward > best_eval:
+                    best_eval = current_ma_train_reward
+                    print(f"\nNew best training MA reward: {best_eval:.6f} at step {step}. Saving best model.")
+                    save_checkpoint(
+                        step,
+                        best_eval,
+                        episodes_finished,
+                        ma_losses,
+                        ma_alphas,
+                        ma_train_rewards,
+                        agent,
+                        BACKUP_DIR / "best_ckpt.pth",
+                    )
 
         # Save checkpoint
         if step % save_interval_steps == 0:
@@ -282,6 +298,7 @@ def train(
                 episodes_finished,
                 ma_losses,
                 ma_alphas,
+                ma_train_rewards,
                 agent,
                 BACKUP_DIR / "ckpt.pth",
             )
@@ -303,6 +320,15 @@ def train(
                     "mean": np.mean(ma_alphas),
                     "min": np.min(ma_alphas),
                     "max": np.max(ma_alphas),
+                },
+                step,
+            )
+            writer.add_scalars(
+                "t/train_reward_ma",
+                {
+                    "mean": np.mean(list(ma_train_rewards)),
+                    "min": np.min(list(ma_train_rewards)),
+                    "max": np.max(list(ma_train_rewards)),
                 },
                 step,
             )
