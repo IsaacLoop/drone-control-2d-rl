@@ -39,7 +39,7 @@ class AbstractEpisode(ABC):
         self.dt = dt
         self.t = 0
 
-        self.game = Game(gui=gui, human_player=False, dt=dt, wind=False, rain=False)
+        self.game = Game(gui=gui, human_player=False, dt=dt, wind=True, rain=True)
         self.desired_velocity = np.array([0.0, 0.0])
         self.done = False
         self._configure_environment()
@@ -90,32 +90,16 @@ class StraightLineEpisode(AbstractEpisode):
         self.game.set_drone_propeller_speeds(*np.random.uniform(-1, 1, size=2))
 
         # Desired
-        self.desired_velocity = np.random.uniform(-5, 5, size=2)
+        self.desired_velocity = np.random.randint(-5, 6, size=2)
         self.starting_position = self.game.drone_position
         self.starting_t = self.t
 
     def _compute_reward(self) -> float:
-        position_error = np.linalg.norm(
-            self.game.drone_position
-            - (
-                self.starting_position
-                + self.desired_velocity * (self.t - self.starting_t) * self.dt
-            )
+        velocity_error = np.linalg.norm(
+            self.game.drone_velocity - self.desired_velocity
         )
 
-        v = self.game.drone_velocity
-        desired_v = self.desired_velocity
-        v_norm = np.linalg.norm(v) + 1e-6
-        desired_v_norm = np.linalg.norm(desired_v) + 1e-6
-        cos_theta = np.clip(np.dot(v, desired_v) / (v_norm * desired_v_norm), -1.0, 1.0)
-        direction_error = 1.0 - cos_theta
-        speed_magnitude_error = np.abs(v_norm - desired_v_norm)
-
-        return (
-            -(0.3 * position_error)
-            - (0.6 * speed_magnitude_error)
-            - (1.0 * direction_error)
-        )
+        return -(1.0 * velocity_error)
 
 
 class StopEpisode(AbstractEpisode):
@@ -134,20 +118,10 @@ class StopEpisode(AbstractEpisode):
         self.success_steps_counter = 0
 
     def _compute_reward(self) -> float:
-        position_error = np.linalg.norm(
-            self.game.drone_position - self.initial_position
-        )
-
-        angle_normalized = math.atan2(
-            math.sin(self.game.drone_angle), math.cos(self.game.drone_angle)
-        )
-        angle_error = abs(angle_normalized)
 
         speed_error = np.linalg.norm(self.game.drone_velocity)
 
-        success_condition_met = (
-            speed_error < 0.1 and angle_error < 0.05 and position_error < 0.15
-        )
+        success_condition_met = speed_error < 0.05
 
         if success_condition_met:
             self.success_steps_counter += 1
@@ -157,8 +131,4 @@ class StopEpisode(AbstractEpisode):
         else:
             self.success_steps_counter = 0
 
-        return (
-            -(0.15 * position_error)
-            - (0.6 / math.pi * angle_error)
-            - (1.0 * speed_error)
-        )
+        return -(1.0 * speed_error)

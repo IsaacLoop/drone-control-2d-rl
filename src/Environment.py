@@ -45,7 +45,7 @@ class Drone:
         self.R_speed = 0.4905
 
         # Motor parameters
-        self.max_prop_acceleration = 1.0  # change in speed fraction per second
+        self.max_prop_acceleration = 4.0
 
     def accelerate_prop(self, aL: float, aR: float, dt: float) -> None:
         """Update propeller speeds with a saturating first-order response.
@@ -54,18 +54,25 @@ class Drone:
         The closer a propeller is to its limit (|speed| -> 1), the slower it
         accelerates. When the command is zero, the prop decays exponentially.
         """
-        decay_rate = 1.5
-        decay_factor = max(0.0, 1.0 - decay_rate * dt)
+        half_life = 1.0  # seconds
+        decay_factor = 0.5 ** (dt / half_life)
 
         def _update(propeller_speed: float, cmd: float) -> float:
-            if cmd == 0.0:
+            if abs(cmd) < 1e-6:
                 return propeller_speed * decay_factor
-            acceleration = (
-                np.clip(cmd, -1.0, 1.0)
-                * self.max_prop_acceleration
-                * (1.0 - abs(propeller_speed))
-            )
-            return np.clip(propeller_speed + acceleration * dt, -1.0, 1.0)
+
+            cmd_clipped = np.clip(cmd, -1.0, 1.0)
+
+            if cmd_clipped > 0:
+                effective_accel_factor = cmd_clipped * (1.0 - propeller_speed)
+            elif cmd_clipped < 0:
+                effective_accel_factor = cmd_clipped
+            else:
+                effective_accel_factor = 0.0
+
+            acceleration = effective_accel_factor * self.max_prop_acceleration
+            new_speed = propeller_speed + acceleration * dt
+            return np.clip(new_speed, 0.0, 1.0)
 
         self.L_speed = _update(self.L_speed, aL)
         self.R_speed = _update(self.R_speed, aR)
@@ -198,7 +205,7 @@ class Environment:
     def drone_velocity(self) -> np.ndarray:
         """Drone velocity on x and y axes."""
         return self.vel.copy()
-    
+
     def set_drone_position(self, x: float, y: float) -> None:
         """Set drone position, relative to the world origin."""
         self.pos = np.array([x, y], dtype=float)
