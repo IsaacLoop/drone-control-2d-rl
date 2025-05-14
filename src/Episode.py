@@ -90,7 +90,7 @@ class StraightLineEpisode(AbstractEpisode):
         self.game.set_drone_propeller_speeds(*np.random.uniform(-1, 1, size=2))
 
         # Desired
-        self.desired_velocity = np.random.randint(-5, 6, size=2)
+        self.desired_velocity = np.random.uniform(-5, 5, size=2)
         self.starting_position = self.game.drone_position
         self.starting_t = self.t
 
