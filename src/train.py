@@ -266,11 +266,11 @@ def train(
         if step >= learning_starts and step % evaluation_interval_steps == 0:
             all_rewards, avg_total_reward = evaluate(agent, gui)
             writer.add_scalars(
-                "e/reward",
+                "e/-reward",
                 {
-                    "max": np.max(all_rewards),
-                    "mean": np.mean(all_rewards),
-                    "min": np.min(all_rewards),
+                    "-max": -np.max(all_rewards),
+                    "-mean": -np.mean(all_rewards),
+                    "-min": -np.min(all_rewards),
                 },
                 step,
             )
@@ -324,11 +324,11 @@ def train(
                 step,
             )
             writer.add_scalars(
-                "t/train_reward_ma",
+                "t/-train_reward_ma",
                 {
-                    "mean": np.mean(list(ma_train_rewards)),
-                    "min": np.min(list(ma_train_rewards)),
-                    "max": np.max(list(ma_train_rewards)),
+                    "-mean": -np.mean(list(ma_train_rewards)),
+                    "-min": -np.min(list(ma_train_rewards)),
+                    "-max": -np.max(list(ma_train_rewards)),
                 },
                 step,
             )
