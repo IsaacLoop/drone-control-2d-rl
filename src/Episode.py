@@ -32,6 +32,15 @@ def build_state(env: Game, desired_vx: float, desired_vy: float) -> np.ndarray:
     )
 
 
+def speed_error_reward(error: float) -> float:
+    """
+    Linear minus 5, grows faster near 0, with a max of 0.
+    Error should generally be positive (absolute).
+    Reward is always negative.
+    """
+    return 5 * np.exp(-4.78 * abs(error)) - abs(error) - 5
+
+
 class AbstractEpisode(ABC):
 
     def __init__(self, duration_steps: int, dt: float, gui: bool):
@@ -46,12 +55,12 @@ class AbstractEpisode(ABC):
 
     @abstractmethod
     def _configure_environment(self):
-        """Initialise `self.env` to suit the task."""
+        """Initialise `self.game` to suit the task."""
         ...
 
     @abstractmethod
     def _compute_reward(self) -> float:
-        """Compute per-step reward using `self.env` state."""
+        """Compute per-step reward using `self.game` state."""
         ...
 
     #  Public API
@@ -79,8 +88,6 @@ class StraightLineEpisode(AbstractEpisode):
         r = super().step(action)
         if random.random() < 1 / STRAIGHT_LINE_CHANGE_DIRECTION_FRAMES_INTERVAL:
             self.desired_velocity = np.random.uniform(-5, 5, size=2)
-            self.starting_position = self.game.drone_position
-            self.starting_t = self.t
         return r
 
     def _configure_environment(self):
@@ -91,15 +98,12 @@ class StraightLineEpisode(AbstractEpisode):
 
         # Desired
         self.desired_velocity = np.random.uniform(-5, 5, size=2)
-        self.starting_position = self.game.drone_position
-        self.starting_t = self.t
 
     def _compute_reward(self) -> float:
         velocity_error = np.linalg.norm(
             self.game.drone_velocity - self.desired_velocity
         )
-
-        return -(1.0 * velocity_error)
+        return speed_error_reward(velocity_error)
 
 
 class StopEpisode(AbstractEpisode):
@@ -114,21 +118,7 @@ class StopEpisode(AbstractEpisode):
 
         # Desired
         self.desired_velocity = np.array([0.0, 0.0])
-        self.initial_position = self.game.drone_position
-        self.success_steps_counter = 0
 
     def _compute_reward(self) -> float:
-
-        speed_error = np.linalg.norm(self.game.drone_velocity)
-
-        success_condition_met = speed_error < 0.01
-
-        if success_condition_met:
-            self.success_steps_counter += 1
-            if self.success_steps_counter >= 10:
-                self.done = True
-                return 3.0
-        else:
-            self.success_steps_counter = 0
-
-        return -(1.0 * speed_error)
+        velocity_error = np.linalg.norm(self.game.drone_velocity)
+        return speed_error_reward(velocity_error)
