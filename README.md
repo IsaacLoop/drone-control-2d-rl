@@ -57,6 +57,8 @@ After 6 hours of training on a RTX 3060, I eneded up with a very capable AI that
 
 You can see that the reward seems to have reached a maximum on average, and does not seem like it can do better.
 
+🎬 The video you can see at the beginning of the README is a video of me playing with the trained agent, controlling it with my keyboard. For example, pressing Z and Q would make it go 5 m/s to the top, and 5 m/s to the left.
+
 ## Future work
 
 The current agent is pretty lightweight, it is about 1 Mo, but it might be interesting to try to make it even smaller, like 100 Ko and see if it can still perform the same, or 10x bigger and see if can be more precise.
