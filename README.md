@@ -1,46 +1,60 @@
-# drone-control-2d-rl
+# Drone Control 2D RL 🚁
 
 **Author:** Isaac Nivet
 
+|PLACEHOLDER VIDEO|
+
 ---
 
-The project consists in training an agent to control a small drone in a realistic 2D environment that I made. The environment has realistic physics, such as gravity, air drag, torque, etc. It is honestly pretty hard to control such a drone! (You can try it yourself by running `python src/Game.py`, and controlling the drone with `A`/`Q` for the left propeller, and `P`/`M` for the right one.)
+> The project consists in training an agent to control a virtual drone in a realistic 2D environment that I made. The environment has realistic physics, such as gravity, air drag, torque, etc.
 
-This difficulty makes it very interesting for a reinforcement learning (RL) project, since it is very hard to hand-engineer rules that would stabilize a drone running in an unstable air, let alone make it perform a specific movement.
+It is honestly pretty hard to control such a drone! (You can try it yourself by running `python src/Game.py`, and controlling the drone with `A`/`Q` for the left propeller, and `P`/`M` for the right one.)
+
+This difficulty makes it very interesting for a reinforcement learning (RL) project, since it is very hard to hand-engineer rules that would stabilize a drone running in an unstable environment submitted to the weather, let alone make it perform a specific movement.
 
 ## Environment
 
 I used Python 3.11 and CUDA 12.6. Installations suggestions are in [env/readme.md](env/readme.md).
 
-## Algorithm
+## How it works
+
+### Algorithm
 
 The algorithm used is [SAC (Soft Actor-Critic)](https://spinningup.openai.com/en/latest/algorithms/sac.html), which is a popular algorithm for continuous action spaces. It is fairly tricky to understand and to implement, but once it's set up, it's very powerful. Some of the best reasons for using SAC would be:
 
 - Works on continuous action spaces (most important, mandatory criteria)
 - Entropy depends on a learnt parameter, which allows the agent to automatically decide to explore more or less depending on where it thinks it is in the training process. That makes it more convenient to use than others, like PPO, DDPG, etc.
-- It is an off-policy algorithm, which means that the agent can learn from past experiences, and not just the ones it has experienced very recently. I tend to have a better feeling with off-policy algorithms, they just feel right to me.
+- It is an off-policy algorithm, which means that the agent can learn from past experiences, and not just the ones it has experienced very recently. It means there is a very high data efficiency.
 
-## Reward function
+### Reward function
 
 RL algorithms need a reward function to learn. A reward function is a function that takes the current state of the environment and the action taken by the agent, and returns a number that represents how good or bad the action was. Typically, the better the action, the higher the reward.
 
 In this project, we used two kinds of training episodes:
 
-- `StopEpisode`: the agent is rewarded for stabilizing the drone, and stop moving.
-- `StraightLineEpisode`: the agent is rewarded for moving in a straight line.
+- `StopEpisode`: the agent is rewarded for stopping the drone and staying still.
+- `StraightLineEpisode`: the agent is rewarded for moving in a given direction at a given speed. Those direction and speed randomly vary during the episode, so the agent learns realistic direction changes.
 
 Although simple, I was surprised to find that these two kinds of episodes are enough to train a robust drone controller agent.
 
+### Recurrence
+
+All of those exercises are tricky for a drone evolving under wind and rain conditions that are out of its control, because they can derive it horizontally, vertically, and make it hard for the drone to remain static. For this precise reason, the agent has a LSTM component, which allows it to infer how it is being moved by external forces, and to compensate for it. Therefore, the drone can be observed being near perfectly static even though strong winds (up to 10 m/s) and rain (up to 10 mm/h) are blowing on it.
+
 ## Training
 
-To train the agent, run `python src/train.py`. Since RL training does not really have a clear end, training is never ending. It periodically saves a checkpoint of the last model. You can resume a previous training by running `python src/train.py --resume`. I advise to also run it with `--nogui` to avoid the GUI showing the drone during testing, because it slows down the training.
+To train the agent, run `python src/train.py`. Since RL training does not really have a clear end, training is never ending. It periodically saves a checkpoint of the last model. It also saves a checkpoint of the best model found so far. You can resume a previous training by running `python src/train.py --resume`. I advise to also run it with `--nogui` to avoid the GUI showing the drone during testing, because it slows down the training.
+
+You can visualize the performance of the agent you trained by running the notebook `notebooks/test_model.ipynb`, which will load the best checkpoint created by `train.py` during the training process.
 
 ## Results
 
-As of right now, the training is not yet completely finished. However, we can observe after only 6 hours of training that the agent is capable of maintaining the drone upwards, and to move it in a desired direction. It still lacks a perfect stability, for instance the wind will drag it around a bit, and it struggles to move quickly in the desired direction.
+After 6 hours of training on a RTX 3060, I eneded up with a very capable AI that can go in the intended direction, at the intended speed, reliably with an margin of error of 0.01 m/s, even with any kind of wind of rain.
 
-You can visualize the performance of the agent by using the notebook `notebooks/test_model.ipynb`, which will load the last checkpoint created by `train.py` during the training process.
+![Screenshot of Tensorboard showing the training reward over time](img/tensorboard-train-reward-ma.png)
+
+You can see that the reward seems to have reached a maximum on average, and does not seem like it can do better.
 
 ## Future work
 
-Training is still ongoing on a server in my house running a RTX 3060, I intend to let it run for a few days before publishing the results.
+The current agent is pretty lightweight, it is about 1 Mo, but it might be interesting to try to make it even smaller, like 100 Ko and see if it can still perform the same, or 10x bigger and see if can be more precise.

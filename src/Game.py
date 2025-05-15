@@ -97,7 +97,7 @@ class Game:
             }
         return None
 
-    def render(self):
+    def render(self, keys: dict[str, bool] | None = None):
         """
         To be completely honest, this whole method was written by ChatGPT.
         It's in no way a critical part of the project, it doesn't really matter,
@@ -106,336 +106,126 @@ class Game:
         if not self.gui:
             return
 
-        self.screen.fill((0, 0, 0))
-        ppm = self.pixels_per_metre  # shorthand
+        # configurable parameters
+        PARTICLE_SPEED_PX = 1000      # max particle speed in px/s
+        PARTICLE_HALF_LIFE = .2     # seconds
+        STREAM_INSET_FACTOR = 0.85    # fraction of lx to inset stream origins (centered)
+        PARTICLES_PER_THRUST = 5     # spawn count per update
 
-        # Get screen dimensions and center (in pixels)
-        screen_width, screen_height = self.screen.get_size()
-        center_x, center_y = screen_width // 2, screen_height // 2
+        # Initialize particle system
+        if not hasattr(self, 'particles'):
+            self.particles = []  # each: {'x','y','vx','vy','age','lifespan'}
 
-        # Drone's world position (metres) - this is our camera focus
-        # drone_pos_m = self.env.body.position
-        drone_pos_m = self.env.drone_position
+        # Background and grid
+        self.screen.fill((15, 15, 35))
+        ppm = self.pixels_per_metre * 2.5
+        spacing = ppm  # 1m
+        w, h = self.screen.get_size(); cx, cy = w//2, h//2
+        off_x = (-self.env.drone_position[0]*ppm) % spacing
+        off_y = ( self.env.drone_position[1]*ppm) % spacing
+        for x in np.arange(-spacing+off_x, w, spacing): pygame.draw.line(self.screen, (40,40,60),(x,0),(x,h))
+        for y in np.arange(-spacing+off_y, h, spacing): pygame.draw.line(self.screen, (40,40,60),(0,y),(w,y))
 
-        # --- Draw Grid --- #
-        # Define grid spacing in world units (metres)
-        grid_spacing_m = 0.5  # e.g., lines every 0.5 metres
-        grid_spacing_px = grid_spacing_m * ppm
-        grid_color = (50, 50, 50)  # Dark Gray
+        # Draw drone
+        angle = self.env.drone_angle; ca, sa = np.cos(angle), np.sin(angle)
+        hw, hh = self.env.drone.x_length/2, self.env.drone.y_length/2
+        corners = [(-hw,-hh),( hw,-hh),( hw, hh),(-hw, hh)]
+        pts = [(cx + (x*ca - y*sa)*ppm, cy - (x*sa + y*ca)*ppm) for x,y in corners]
+        pygame.draw.polygon(self.screen,(220,220,220),pts)
+        pygame.draw.aalines(self.screen,(255,255,255),True,pts)
 
-        # Calculate the world coordinates (metres) of the top-left corner relative to the drone
-        # Drone is at screen center (center_x, center_y)
-        # Top-left screen pixel corresponds to world offset (-center_x / ppm, +center_y / ppm) from drone
-        world_offset_left_m = -center_x / ppm
-        world_offset_top_m = center_y / ppm  # Pygame Y is inverted
+        # Update and draw particles
+        alive = []
+        for p in self.particles:
+            p['age'] += self.dt
+            if p['age'] < p['lifespan']:
+                p['x'] += p['vx'] * self.dt
+                p['y'] += p['vy'] * self.dt
+                pygame.draw.rect(self.screen, (255,255,255), (int(p['x']), int(p['y']), 2, 2))
+                alive.append(p)
+        self.particles = alive
 
-        # World coordinates (metres) of the top-left screen corner
-        world_view_left_m = drone_pos_m[0] + world_offset_left_m
-        world_view_top_m = drone_pos_m[1] + world_offset_top_m
+        # Spawn new particles under each propeller
+        decay_scale = PARTICLE_HALF_LIFE / np.log(2)
+        for (lx,ly), sp in [(self.env.drone.L_xy, self.env.drone.L_speed), (self.env.drone.R_xy, self.env.drone.R_speed)]:
+            thrust = max(0.0, min(1.0, sp))
+            if thrust > 0.1:
+                inset = lx * STREAM_INSET_FACTOR
+                ox = cx + (inset*ca - ly*sa)*ppm
+                oy = cy - (inset*sa + ly*ca)*ppm
+                for _ in range(int(thrust * PARTICLES_PER_THRUST)):
+                    # slight lateral jitter
+                    jitter = (np.random.rand() - 0.5) * (self.env.drone.x_length * ppm * 0.1)
+                    px = ox + jitter * ca
+                    py = oy - jitter * sa
+                    # downward-only velocity
+                    angle_off = (np.random.rand() - 0.5) * 0.1
+                    mag = thrust * PARTICLE_SPEED_PX
+                    local_vx = mag * np.sin(angle_off)
+                    local_vy = mag * np.cos(angle_off)
+                    # world velocities (Pygame y downward positive)
+                    rvx = local_vx * ca + local_vy * sa
+                    rvy = local_vx * -sa + local_vy * ca
+                    lifespan = np.random.exponential(decay_scale)
+                    self.particles.append({'x': px, 'y': py, 'vx': rvx, 'vy': rvy, 'age': 0.0, 'lifespan': lifespan})
 
-        # Calculate the first vertical grid line coordinate >= world_view_left_m
-        start_x_m = np.floor(world_view_left_m / grid_spacing_m) * grid_spacing_m
-        # Calculate the first horizontal grid line coordinate <= world_view_top_m
-        start_y_m = np.ceil(world_view_top_m / grid_spacing_m) * grid_spacing_m
+        # Orientation arrow
+        ah, ab = 0.1, 0.05; base = hh + 0.05
+        arrow = [(-ab,base),(0,base+ah),(ab,base)]
+        tri = [(cx + (x*ca - y*sa)*ppm, cy - (x*sa + y*ca)*ppm) for x,y in arrow]
+        pygame.draw.polygon(self.screen,(255,100,100),tri)
 
-        # Calculate visible world width and height in metres
-        world_view_width_m = screen_width / ppm
-        world_view_height_m = screen_height / ppm
+                # Wind & Rain vectors and static labels
+        origin, sv = (w-140,80), 40
+        wx = getattr(self.env,'wind_vx',0); ry = getattr(self.env,'rain_vy',0)
+        wend = (origin[0]+wx*sv, origin[1]); rend = (origin[0], origin[1]-ry*sv)
+        pygame.draw.line(self.screen,(255,50,50),origin,wend,2)
+        pygame.draw.line(self.screen,(50,150,255),origin,rend,2)
+        pygame.draw.line(self.screen,(255,255,255),origin,(wend[0],rend[1]),2)
+        pygame.draw.circle(self.screen,(200,200,200),origin,3)
+        # Static labels for wind and rain
+        label_x = w - 200
+        wind_label = self.font.render(f"Wind: {wx:.2f} m/s", True, (255,50,50))
+        rain_label = self.font.render(f"Rain: {ry:.2f} m/s", True, (50,150,255))
+        self.screen.blit(wind_label, (label_x, 20))
+        self.screen.blit(rain_label, (label_x, 40))
 
-        # Draw vertical lines
-        num_vert_lines = int(np.ceil(world_view_width_m / grid_spacing_m)) + 2
-        for i in range(num_vert_lines):
-            x_m = start_x_m + i * grid_spacing_m
-            # Convert world x (metres) to screen x (pixels)
-            screen_x = center_x + (x_m - drone_pos_m[0]) * ppm
-            pygame.draw.line(
-                self.screen, grid_color, (screen_x, 0), (screen_x, screen_height)
-            )
+        # Thruster bars 0→1 0→1
+        bw,bh = 220,14
+        for i, sp in enumerate([self.env.drone.L_speed,self.env.drone.R_speed]):
+            thrust = max(0.0, min(1.0, sp))
+            x0 = cx - bw - 15 + i*(bw+30); y0 = h - bh - 30
+            pygame.draw.rect(self.screen, (60,60,80), (x0,y0,bw,bh))
+            pygame.draw.rect(self.screen, (0,200,255), (x0,y0,int(bw*thrust),bh))
+            pygame.draw.rect(self.screen, (255,255,255), (x0,y0,bw,bh), 1)
+            label = "Left thrust:" if i==0 else "Right thrust:"
+            txt = self.font.render(f"{label} {thrust:.2f}", True, (230,230,230))
+            self.screen.blit(txt, (x0, y0 - txt.get_height() - 5))
 
-        # Draw horizontal lines
-        num_horz_lines = int(np.ceil(world_view_height_m / grid_spacing_m)) + 2
-        for i in range(num_horz_lines):
-            y_m = (
-                start_y_m - i * grid_spacing_m
-            )  # Subtract because Y decreases downwards in world
-            # Convert world y (metres) to screen y (pixels)
-            screen_y = center_y - (y_m - drone_pos_m[1]) * ppm  # Invert Y
-            pygame.draw.line(
-                self.screen, grid_color, (0, screen_y), (screen_width, screen_y)
-            )
+        # WASD layout
+        if keys:
+            ksz, m = 40, 8; bx, by = 20, h - ksz - 20
+            pos = {'A':(bx,by),'S':(bx+ksz+m,by),'D':(bx+2*(ksz+m),by),'W':(bx+ksz+m,by-ksz-m)}
+            for k,p in pos.items():
+                if k in keys:
+                    col = (240,240,240) if keys[k] else (80,80,100)
+                    pygame.draw.rect(self.screen,col,(p[0],p[1],ksz,ksz),border_radius=5)
+                    tk = self.font.render(k,True,(20,20,30))
+                    self.screen.blit(tk,(p[0]+(ksz-tk.get_width())/2,p[1]+(ksz-tk.get_height())/2))
 
-        # --- Draw Drone ---
-        # pos_m = self.env.body.position # metres
-        pos_m = self.env.drone_position  # metres
-        angle = self.env.drone_angle  # radians
+        # Telemetry
+        pw,ph = 280,180; panel = pygame.Surface((pw,ph),pygame.SRCALPHA)
+        panel.fill((25,25,45,220)); self.screen.blit(panel,(20,20))
+        fields = [("Position",f"({self.env.drone_position[0]:.2f},{self.env.drone_position[1]:.2f}) m"),
+                  ("Angle",f"{np.degrees(self.env.drone_angle):.1f}°"),
+                  ("Vx",f"{self.env.drone_velocity[0]:.2f} m/s"),("Vy",f"{self.env.drone_velocity[1]:.2f} m/s"),
+                  ("Wind",f"{wx:.2f} m/s"),("Rain",f"{ry:.2f} m/s")]
+        total_h = sum(self.font.size(f"{L}: {V}")[1]+6 for L,V in fields)
+        sy = 20 + (ph - total_h)/2
+        for L,V in fields:
+            t = self.font.render(f"{L}: {V}",True,(245,245,245)); self.screen.blit(t,(30,sy)); sy+=t.get_height()+6
 
-        # Calculate drone vertices in local coordinates (metres) relative to body center
-        half_width_m = self.env.drone.x_length / 2.0
-        half_height_m = self.env.drone.y_length / 2.0
-        local_points_m = [
-            (-half_width_m, -half_height_m),
-            (half_width_m, -half_height_m),
-            (half_width_m, half_height_m),
-            (-half_width_m, half_height_m),
-        ]
-
-        # Rotate and transform local points (metres) to screen coordinates (pixels)
-        screen_points = []
-        cos_a = np.cos(angle)
-        sin_a = np.sin(angle)
-        for lx_m, ly_m in local_points_m:
-            # Rotate local point
-            rotated_local_x_m = lx_m * cos_a - ly_m * sin_a
-            rotated_local_y_m = lx_m * sin_a + ly_m * cos_a
-
-            # Calculate screen coordinates relative to the screen center
-            # The drone's center (pos_m) is always at the screen center (center_x, center_y)
-            screen_rel_x_px = rotated_local_x_m * ppm
-            screen_rel_y_px = rotated_local_y_m * ppm  # Y is not inverted yet
-
-            # Final screen coordinates
-            screen_x = center_x + screen_rel_x_px
-            screen_y = center_y - screen_rel_y_px  # Invert Y-axis here
-
-            # Clamp coordinates (optional, but good practice)
-            buffer = max(screen_width, screen_height)  # Smaller buffer might suffice
-            min_coord = -buffer
-            max_x_coord = screen_width + buffer
-            max_y_coord = screen_height + buffer
-            clamped_x = max(min_coord, min(int(round(screen_x)), max_x_coord))
-            clamped_y = max(min_coord, min(int(round(screen_y)), max_y_coord))
-
-            screen_points.append((clamped_x, clamped_y))
-
-        # Draw drone polygon
-        pygame.draw.polygon(self.screen, (255, 255, 255), screen_points)  # White
-
-        # --- Draw Orientation Marker (^) ---
-        # Define marker size and offsets in world units (metres)
-        marker_height_m = 0.08  # 8 cm tall
-        marker_width_m = 0.04  # 4 cm wide base
-        marker_base_y_offset_m = half_height_m + 0.02  # 2 cm above drone top surface
-
-        # Define the marker points in local coordinates (metres) relative to the drone's center (0,0)
-        local_p_tip_m = (0, marker_base_y_offset_m + marker_height_m)
-        local_p_base_left_m = (-marker_width_m / 2, marker_base_y_offset_m)
-        local_p_base_right_m = (marker_width_m / 2, marker_base_y_offset_m)
-
-        marker_points_local_m = [
-            local_p_base_left_m,
-            local_p_tip_m,
-            local_p_base_right_m,
-        ]
-        marker_points_screen = []
-
-        # Rotate and transform marker points to screen coordinates
-        for lx_m, ly_m in marker_points_local_m:
-            # Rotate local point
-            rotated_local_x_m = lx_m * cos_a - ly_m * sin_a
-            rotated_local_y_m = lx_m * sin_a + ly_m * cos_a
-
-            # Transform to screen coordinates (relative to center, scaled, Y inverted)
-            screen_rel_x_px = rotated_local_x_m * ppm
-            screen_rel_y_px = rotated_local_y_m * ppm
-            screen_x = center_x + screen_rel_x_px
-            screen_y = center_y - screen_rel_y_px  # Invert Y
-
-            marker_points_screen.append((int(round(screen_x)), int(round(screen_y))))
-
-        # Draw the marker lines (e.g., in Red)
-        marker_color = (255, 0, 0)  # Red
-        pygame.draw.line(
-            self.screen,
-            marker_color,
-            marker_points_screen[0],
-            marker_points_screen[1],
-            2,
-        )  # Line base_left -> tip
-        pygame.draw.line(
-            self.screen,
-            marker_color,
-            marker_points_screen[1],
-            marker_points_screen[2],
-            2,
-        )  # Line tip -> base_right
-
-        # --- Draw Thrust Indicators ---
-        max_thrust_line_length_m = 0.3  # Visual length in metres for max thrust
-        thrust_color_positive = (0, 150, 255)  # Light blue
-        thrust_color_negative = (255, 100, 0)  # Orange/Red
-
-        prop_data = [
-            (self.env.drone.L_speed, self.env.drone.L_xy),
-            (self.env.drone.R_speed, self.env.drone.R_xy),
-        ]
-
-        for speed, local_prop_pos_m in prop_data:
-            if abs(speed) < 0.01:  # Don't draw tiny lines
-                continue
-
-            thrust_ratio = speed  # speed is already -1 to 1
-            line_length_m = thrust_ratio * max_thrust_line_length_m
-
-            # Calculate start point (propeller location)
-            lx_m, ly_m = local_prop_pos_m
-            # Rotate
-            rotated_start_local_x_m = lx_m * cos_a - ly_m * sin_a
-            rotated_start_local_y_m = lx_m * sin_a + ly_m * cos_a
-            # Transform to screen
-            start_screen_rel_x_px = rotated_start_local_x_m * ppm
-            start_screen_rel_y_px = rotated_start_local_y_m * ppm
-            start_screen_x = center_x + start_screen_rel_x_px
-            start_screen_y = center_y - start_screen_rel_y_px  # Invert Y
-            start_point_screen = (
-                int(round(start_screen_x)),
-                int(round(start_screen_y)),
-            )
-
-            # Calculate end point (offset from start point along drone's local Y axis)
-            # End point relative to propeller in local drone frame
-            end_offset_local_m = (0, line_length_m)
-            # End point relative to drone center in local drone frame
-            end_point_local_m = (
-                lx_m + end_offset_local_m[0],
-                ly_m + end_offset_local_m[1],
-            )
-            # Rotate
-            rotated_end_local_x_m = (
-                end_point_local_m[0] * cos_a - end_point_local_m[1] * sin_a
-            )
-            rotated_end_local_y_m = (
-                end_point_local_m[0] * sin_a + end_point_local_m[1] * cos_a
-            )
-            # Transform to screen
-            end_screen_rel_x_px = rotated_end_local_x_m * ppm
-            end_screen_rel_y_px = rotated_end_local_y_m * ppm
-            end_screen_x = center_x + end_screen_rel_x_px
-            end_screen_y = center_y - end_screen_rel_y_px  # Invert Y
-            end_point_screen = (int(round(end_screen_x)), int(round(end_screen_y)))
-
-            # Choose color
-            color = thrust_color_positive if thrust_ratio > 0 else thrust_color_negative
-
-            # Draw line
-            pygame.draw.line(
-                self.screen, color, start_point_screen, end_point_screen, 3
-            )
-
-        # --- Display Text ---
-        # Text display uses world coordinates/velocities directly from env, which are already in metres/m/s
-        text_y = 10  # Starting Y position for text
-
-        # Drone Coordinates (metres)
-        coord_text = f"Pos (m): ({self.env.drone_position[0]:.2f}, {self.env.drone_position[1]:.2f})"
-        coord_surface = self.font.render(
-            coord_text, True, (255, 255, 255)
-        )  # White text
-        self.screen.blit(coord_surface, (10, text_y))
-        text_y += coord_surface.get_height() + 2  # Add small padding
-
-        # Angle
-        angle_text = (
-            f"Angle: {np.degrees(self.env.drone_angle):.2f}°"  # Display in degrees
-        )
-        angle_surface = self.font.render(angle_text, True, (255, 255, 255))
-        self.screen.blit(angle_surface, (10, text_y))
-        text_y += angle_surface.get_height() + 2
-
-        # Linear Velocity
-        vx_text = f"Vx: {self.env.drone_velocity[0]:.2f}"
-        vx_surface = self.font.render(vx_text, True, (255, 255, 255))
-        self.screen.blit(vx_surface, (10, text_y))
-        text_y += vx_surface.get_height() + 2
-
-        vy_text = f"Vy: {self.env.drone_velocity[1]:.2f}"
-        vy_surface = self.font.render(vy_text, True, (255, 255, 255))
-        self.screen.blit(vy_surface, (10, text_y))
-        text_y += vy_surface.get_height() + 2
-
-        # Angular Velocity
-        va_text = f"Va: {self.env.ang_vel:.2f}"
-        va_surface = self.font.render(va_text, True, (255, 255, 255))
-        self.screen.blit(va_surface, (10, text_y))
-        text_y += va_surface.get_height() + 2
-
-        # Wind Speed
-        # Need to access wind_vx from environment, assuming it's stored after step
-        try:
-            wind_vx = self.env.wind_vx
-        except AttributeError:
-            wind_vx = 0  # Default if not set yet
-        wind_text = f"Wind: {wind_vx:.2f} m/s"
-        wind_surface = self.font.render(wind_text, True, (255, 255, 255))  # White text
-        self.screen.blit(wind_surface, (10, text_y))
-        text_y += wind_surface.get_height() + 2  # Add small padding
-
-        # Rain Speed
-        # Need to access rain_vy from environment, assuming it's stored after step
-        try:
-            rain_vy = self.env.rain_vy
-        except AttributeError:
-            rain_vy = 0  # Default if not set yet
-        rain_text = f"Rain: {rain_vy:.2f} m/s"
-        rain_surface = self.font.render(rain_text, True, (255, 255, 255))  # White text
-        self.screen.blit(rain_surface, (10, text_y))
-        text_y += rain_surface.get_height() + 2  # Add small padding
-
-        # Propeller Power
-        prop_text = f"Prop L: {self.env.drone.L_speed:.2f}, Prop R: {self.env.drone.R_speed:.2f}"
-        prop_surface = self.font.render(prop_text, True, (255, 255, 255))  # White text
-        self.screen.blit(prop_surface, (10, text_y))
-
-        # --- Draw Wind/Rain Vectors (Top Right) ---
-        vector_origin_x = self.window_width - 100
-        vector_origin_y = 100
-        vector_scale = 50.0  # Pixels per m/s
-        vector_origin_screen = (vector_origin_x, vector_origin_y)
-
-        # Get wind/rain data
-        wind_vx = self.env.wind_vx
-        rain_vy = (
-            self.env.rain_vy
-        )  # Remember: positive rain_vy in physics means downwards
-
-        # Calculate vector end points in screen coordinates
-        # Wind vector (Red) - horizontal
-        wind_end_x = vector_origin_x + wind_vx * vector_scale
-        wind_end_y = vector_origin_y  # No vertical component
-        wind_end_screen = (int(round(wind_end_x)), int(round(wind_end_y)))
-
-        # Rain vector (Blue) - vertical
-        rain_end_x = vector_origin_x  # No horizontal component
-        rain_end_y = (
-            vector_origin_y - rain_vy * vector_scale
-        )  # Positive physics rain_vy decreases screen Y (upwards)
-        rain_end_screen = (int(round(rain_end_x)), int(round(rain_end_y)))
-
-        # Resultant vector (White)
-        resultant_end_x = vector_origin_x + wind_vx * vector_scale
-        resultant_end_y = (
-            vector_origin_y - rain_vy * vector_scale
-        )  # Apply same fix for resultant
-        resultant_end_screen = (
-            int(round(resultant_end_x)),
-            int(round(resultant_end_y)),
-        )
-
-        # Draw vectors
-        pygame.draw.line(
-            self.screen, (255, 0, 0), vector_origin_screen, wind_end_screen, 2
-        )  # Red Wind
-        pygame.draw.line(
-            self.screen, (0, 0, 255), vector_origin_screen, rain_end_screen, 2
-        )  # Blue Rain
-        pygame.draw.line(
-            self.screen, (255, 255, 255), vector_origin_screen, resultant_end_screen, 2
-        )  # White Resultant
-
-        # Optional: Draw a small circle at the origin
-        pygame.draw.circle(self.screen, (200, 200, 200), vector_origin_screen, 3)
-
-        pygame.display.flip()
-        self.clock.tick(1 / self.dt)
+        pygame.display.flip(); self.clock.tick(1/self.dt)
 
     @property
     def wind_force(self) -> float:
