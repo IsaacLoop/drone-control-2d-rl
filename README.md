@@ -8,7 +8,7 @@ https://github.com/user-attachments/assets/d9efd143-99ce-4cee-adf3-836e7490a681
 
 ---
 
-> The project consists in training an agent to control a virtual drone in a realistic 2D environment that I made. The environment has realistic physics, such as gravity, air drag, torque, etc.
+⭐ The project consists in training an agent to control a virtual drone in a realistic 2D environment that I made. The environment has realistic physics, such as gravity, air drag, torque, etc.
 
 It is honestly pretty hard to control such a drone! (You can try it yourself by running `python src/Game.py`, and controlling the drone with `A`/`Q` for the left propeller, and `P`/`M` for the right one.)
 
