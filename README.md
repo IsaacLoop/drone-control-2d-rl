@@ -4,7 +4,7 @@
 
 Sneak peak at the end result:
 
-https://github.com/user-attachments/assets/d9efd143-99ce-4cee-adf3-836e7490a681
+https://github.com/user-attachments/assets/478e57de-5fc4-4633-86f9-02ff1bc27010
 
 ---
 
