@@ -278,7 +278,6 @@ def train(
                 current_ma_train_reward = np.mean(list(ma_train_rewards))
                 if current_ma_train_reward > best_eval:
                     best_eval = current_ma_train_reward
-                    print(f"\nNew best training MA reward: {best_eval:.6f} at step {step}. Saving best model.")
                     save_checkpoint(
                         step,
                         best_eval,
