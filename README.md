@@ -2,7 +2,9 @@
 
 **Author:** Isaac Nivet
 
-|PLACEHOLDER VIDEO|
+Sneak peak at the end result:
+
+https://github.com/user-attachments/assets/d9efd143-99ce-4cee-adf3-836e7490a681
 
 ---
 
