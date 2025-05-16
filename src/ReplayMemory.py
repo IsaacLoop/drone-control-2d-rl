@@ -55,14 +55,14 @@ class LSTMReplayMemory:
         """Adds an experience to the memory.
 
         Args:
-            episode_id (int): The unique id of the episode.
-            state (tuple[np.ndarray, np.ndarray]): A state at time t. A grid and a fruit type.
-            action (int): The action taken by the agent when looking at state t.
-            reward (float): The reward received by the agent between state t and t+1.
-            next_state (tuple[np.ndarray, np.ndarray]): The next state of the environment, at time t+1. A grid and a fruit type.
-            done (bool): Whether state t+1 is a terminal state (game over).
-            h0_actor (np.ndarray): The initial hidden state of the actor's LSTM.
-            c0_actor (np.ndarray): The initial cell state of the actor's LSTM.
+            episode_id (int): Unique identifier for the episode.
+            state (np.ndarray): Drone state vector at time ``t``.
+            action (int | np.ndarray): Action taken by the agent at time ``t``.
+            reward (float): Reward received between ``t`` and ``t+1``.
+            next_state (np.ndarray): Drone state vector at time ``t+1``.
+            done (bool): Whether state ``t+1`` is terminal.
+            h0_actor (np.ndarray): Initial hidden state of the actor's LSTM.
+            c0_actor (np.ndarray): Initial cell state of the actor's LSTM.
         """
 
         if episode_id not in self.episodes:
@@ -103,7 +103,7 @@ class LSTMReplayMemory:
         long_enough_episodes = [e for e in self.episodes.values() if len(e) >= seq_len]
         if len(long_enough_episodes) < batch_size:
             raise ValueError(
-                f"Not enough episodes with at least {seq_len} steps, got {len(self.episodes)}"
+                f"Not enough episodes with at least {seq_len} steps, got {len(long_enough_episodes)}"
             )
 
         batch = []
