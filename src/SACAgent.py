@@ -22,13 +22,13 @@ class Actor(nn.Module):
         self.lstm_hidden_dim = lstm_hidden_dim
 
         self.fc = nn.Sequential(
-            nn.Linear(state_dim, 256),
+            nn.Linear(state_dim, 64),
             nn.ReLU(),
-            nn.Linear(256, 256),
+            nn.Linear(64, 64),
             nn.ReLU(),
         )
 
-        self.lstm = nn.LSTM(256, self.lstm_hidden_dim, batch_first=True)
+        self.lstm = nn.LSTM(64, self.lstm_hidden_dim, batch_first=True)
 
         self.μ_layer = nn.Linear(self.lstm_hidden_dim, action_dim)
         self.log_std_layer = nn.Linear(self.lstm_hidden_dim, action_dim)
@@ -130,7 +130,7 @@ class SACAgent:
         self,
         state_dim: int,
         action_dim: int,
-        lstm_hidden_dim: int = 128,
+        lstm_hidden_dim: int = 32,
         memory_episodes_capacity: int = 10_000,
         seq_len: int = 32,
         batch_size: int = 64,
