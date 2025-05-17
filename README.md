@@ -51,6 +51,10 @@ You can visualize the performance of the agent you trained by running the notebo
 
 ## Results
 
+### Original experiment
+
+The first experiment consisted in training an agent whose actor was roughly 1 Mo to be able to go anything between 0 and 5 m/s in any direction, reliably.
+
 After 6 hours of training on a RTX 3060, I ended up with a very capable AI that can go in the intended direction, at the intended speed, reliably with an margin of error of 0.01 m/s, even with any kind of wind of rain.
 
 ![Screenshot of Tensorboard showing the training reward over time](img/tensorboard-train-reward-ma.png)
@@ -59,6 +63,18 @@ You can see that the reward seems to have reached a maximum on average, and does
 
 🎬 The video you can see at the beginning of the README is a video of me playing with the trained agent, controlling it with my keyboard. For example, pressing Z and Q would make it go 5 m/s to the top, and 5 m/s to the left.
 
+### Pushing the boundaries
+
+Seeing the success of the original experiment, I have run more trainings:
+
+| Title | Size | Results |
+|---------------|------|---------|
+| Original          | 1.045 Mo | Performs extremely well |
+| Actor 93% smaller | 0.073 Mo | Performs in a similar way as the original model |
+| Actor 98% smaller | 0.023 Mo | Performs in a similar way as the original model |
+
+It appears that the original actor has a lot of redundancy, and that the agent can learn to perform the same task with a much smaller actor.
+
 ## Future work
 
-The current agent is pretty lightweight, it is about 1 Mo, but it might be interesting to try to make it even smaller, like 100 Ko and see if it can still perform the same, or 10x bigger and see if can be more precise.
+I think it would be interesting for the agent to be able to control the drone at much faster speeds than the original 5 m/s, for instance 20 m/s.
