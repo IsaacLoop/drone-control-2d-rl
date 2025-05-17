@@ -55,7 +55,7 @@ You can visualize the performance of the agent you trained by running the notebo
 
 The first experiment consisted in training an agent whose actor was roughly 1 Mo to be able to go anything between 0 and 5 m/s in any direction, reliably.
 
-After 6 hours of training on a RTX 3060, I ended up with a very capable AI that can go in the intended direction, at the intended speed, reliably with an margin of error of 0.01 m/s, even with any kind of wind of rain.
+After 6 hours of training on a RTX 3060, I ended up with a very capable AI that can go in the intended direction, at the intended speed, reliably with a margin of error of 0.01 m/s, even with any kind of wind or rain.
 
 ![Screenshot of Tensorboard showing the training reward over time](img/tensorboard-train-reward-ma.png)
 
