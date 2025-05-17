@@ -8,6 +8,8 @@ from src.Game import Game
 
 STRAIGHT_LINE_CHANGE_DIRECTION_FRAMES_INTERVAL = 90
 
+MAX_SPEED = 20
+
 
 def build_state(env: Game, desired_vx: float, desired_vy: float) -> np.ndarray:
     vx, vy = env.env.drone_velocity / 5
@@ -87,17 +89,17 @@ class StraightLineEpisode(AbstractEpisode):
     def step(self, action: np.ndarray) -> tuple[np.ndarray, float, bool]:
         r = super().step(action)
         if random.random() < 1 / STRAIGHT_LINE_CHANGE_DIRECTION_FRAMES_INTERVAL:
-            self.desired_velocity = np.random.uniform(-5, 5, size=2)
+            self.desired_velocity = np.random.uniform(-MAX_SPEED, MAX_SPEED, size=2)
         return r
 
     def _configure_environment(self):
         # Drone init
-        self.game.set_drone_velocity(*np.random.uniform(-5, 5, size=2))
+        self.game.set_drone_velocity(*np.random.uniform(-MAX_SPEED, MAX_SPEED, size=2))
         self.game.set_drone_angle(np.random.uniform(0, 2 * math.pi))
         self.game.set_drone_propeller_speeds(*np.random.uniform(-1, 1, size=2))
 
         # Desired
-        self.desired_velocity = np.random.uniform(-5, 5, size=2)
+        self.desired_velocity = np.random.uniform(-MAX_SPEED, MAX_SPEED, size=2)
 
     def _compute_reward(self) -> float:
         velocity_error = np.linalg.norm(
@@ -112,7 +114,7 @@ class StopEpisode(AbstractEpisode):
 
     def _configure_environment(self):
         # Drone init
-        self.game.set_drone_velocity(*np.random.uniform(-5, 5, size=2))
+        self.game.set_drone_velocity(*np.random.uniform(-MAX_SPEED, MAX_SPEED, size=2))
         self.game.set_drone_angle(np.random.uniform(0, 2 * math.pi))
         self.game.set_drone_propeller_speeds(*np.random.uniform(-1, 1, size=2))
 
